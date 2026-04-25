@@ -273,7 +273,7 @@
   <script>
     var API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
       ? 'http://localhost:5000/api'
-      : 'https://YOUR_RAILWAY_URL.railway.app/api';
+      : 'https://web-production-30866.up.railway.app/api';
 
     var backendOnline = false;
 
@@ -453,7 +453,7 @@
           localStorage.setItem('bm-local-users', JSON.stringify(users));
           localStorage.setItem('user', JSON.stringify({ id: user.id, name: user.name, email: user.email, is_admin: false }));
           setLoading('regBtn', false);
-          showToast('Account created locally!');
+          showToast('Account created successfully!');
           setTimeout(function() { sessionStorage.setItem('bm-auth-passed','1'); window.location.href = 'index.html'; }, 800);
         }, 400);
         return;
