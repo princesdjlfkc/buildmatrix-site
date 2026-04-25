@@ -8,7 +8,6 @@ const crypto     = require('crypto');
 const bcrypt     = require('bcryptjs');
 const cors       = require('cors');
 const session    = require('express-session');
-const nodemailer = require('nodemailer');
 const Database   = require('better-sqlite3');
 const { exec }   = require('child_process');
 
@@ -20,7 +19,8 @@ try {
 }
 
 const PORT         = Number(process.env.PORT || 5000);
-const DB_FILE      = process.env.DB_FILE || path.join(__dirname, 'buildmatrix.sqlite');
+// Railway persistent volume: use /data if available, else local
+const DB_FILE      = process.env.DB_FILE || (fs.existsSync('/data') ? '/data/buildmatrix.sqlite' : path.join(__dirname, 'buildmatrix.sqlite'));
 const isProduction = process.env.NODE_ENV === 'production';
 
 const sqliteDb = new Database(DB_FILE);
@@ -49,16 +49,6 @@ sqliteDb.exec(`
     used        INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS email_verifications (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    email       TEXT    NOT NULL,
-    code        TEXT    NOT NULL,
-    type        TEXT    NOT NULL,
-    expires_at  TEXT    NOT NULL,
-    used        INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS builds (
@@ -119,52 +109,6 @@ const db = {
     return Promise.resolve([{ affectedRows: info.changes, insertId: info.lastInsertRowid }]);
   }
 };
-
-function buildTransporter() {
-  const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_PASS;
-  if (!user || !pass) return null;
-  return nodemailer.createTransport({
-    host:   process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
-    port:   Number(process.env.EMAIL_PORT || 587),
-    secure: false,
-    auth: { user, pass },
-  });
-}
-
-function generateOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
-async function sendOtpEmail({ to, code, subject, purpose }) {
-  const tr = buildTransporter();
-  if (!tr) { console.warn('[EMAIL] Not configured — OTP:', code); return { sent: false }; }
-  const labels = { signup: 'Complete your BuildMatrix registration', change_password: 'Confirm your password change' };
-  const label = labels[purpose] || 'Verify your BuildMatrix action';
-  const from  = process.env.EMAIL_FROM || process.env.EMAIL_USER;
-  await tr.sendMail({
-    from: `"BuildMatrix" <${from}>`,
-    to,
-    subject: subject || 'BuildMatrix Verification Code',
-    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#080C14;font-family:Inter,Arial,sans-serif;">
-<div style="max-width:480px;margin:40px auto;background:#0e1520;border:1px solid rgba(0,212,255,0.15);border-radius:16px;overflow:hidden;">
-  <div style="background:linear-gradient(135deg,rgba(0,212,255,0.1),rgba(123,63,228,0.1));padding:28px 32px;border-bottom:1px solid rgba(0,212,255,0.1);">
-    <div style="font-size:22px;font-weight:900;letter-spacing:0.05em;color:#00D4FF;">&#9881; BUILDMATRIX</div>
-    <div style="font-size:12px;color:#5a8aaa;margin-top:4px;text-transform:uppercase;letter-spacing:0.08em;">Ultimate PC Builder &middot; Philippines</div>
-  </div>
-  <div style="padding:32px;">
-    <div style="font-size:16px;font-weight:700;color:#D8EEFF;margin-bottom:8px;">${label}</div>
-    <div style="font-size:13px;color:#5a8aaa;margin-bottom:28px;line-height:1.6;">Your one-time verification code is:</div>
-    <div style="background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.2);border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
-      <div style="font-size:40px;font-weight:900;letter-spacing:0.3em;color:#00D4FF;font-family:monospace;">${code}</div>
-    </div>
-    <div style="font-size:12px;color:#2a4560;line-height:1.6;">This code expires in <strong style="color:#5a8aaa;">10 minutes</strong>.<br>If you did not request this, ignore this email.</div>
-  </div>
-  <div style="padding:16px 32px;border-top:1px solid rgba(0,212,255,0.08);font-size:11px;color:#2a4560;text-align:center;">&copy; ${new Date().getFullYear()} BuildMatrix &mdash; Philippines</div>
-</div></body></html>`,
-  });
-  return { sent: true };
-}
 
 const app = express();
 app.set('trust proxy', 1);
@@ -253,10 +197,13 @@ function sanitizeUser(row) {
   };
 }
 
+// ─── AUTH ROUTES ────────────────────────────────────────────────────────────
+
 app.get('/api/auth/test', (req, res) =>
   res.json({ success: true, message: 'Backend is running!', time: new Date().toISOString() })
 );
 
+// REGISTER — no OTP, instant registration
 app.post('/api/auth/register', async (req, res) => {
   try {
     const name     = String(req.body.name     || '').trim();
@@ -272,12 +219,16 @@ app.post('/api/auth/register', async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
     await db.query('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, hashed]);
     const [newRows] = await db.query('SELECT * FROM users WHERE email=?', [email]);
-    res.json({ success: true, message: 'Registration successful', user: sanitizeUser(newRows[0]) });
+    req.session.userId = newRows[0].id;
+    req.session.save(() =>
+      res.json({ success: true, message: 'Registration successful', user: sanitizeUser(newRows[0]) })
+    );
   } catch (err) {
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
+// LOGIN — direct, no OTP
 app.post('/api/auth/login', async (req, res) => {
   try {
     const email    = String(req.body.email    || '').trim().toLowerCase();
@@ -316,25 +267,7 @@ app.put('/api/auth/theme', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
-app.post('/api/auth/send-verification', async (req, res) => {
-  try {
-    const email = String(req.body.email || '').trim().toLowerCase();
-    if (!email) return res.status(400).json({ success: false, error: 'Email is required' });
-    const [exists] = await db.query('SELECT id FROM users WHERE email=?', [email]);
-    if (exists.length) return res.status(400).json({ success: false, error: 'Email already registered' });
-    const code    = generateOtp();
-    const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-    await db.query("DELETE FROM email_verifications WHERE email=? AND type='signup'", [email]);
-    await db.query("INSERT INTO email_verifications (email,code,type,expires_at) VALUES (?,?,'signup',?)", [email, code, expires]);
-    let mailStatus = { sent: false };
-    try { mailStatus = await sendOtpEmail({ to: email, code, subject: 'BuildMatrix — Verify Your Email', purpose: 'signup' }); }
-    catch (e) { console.error('send-verification mail error:', e.message); }
-    res.json({ success: true, message: mailStatus.sent ? 'Code sent!' : 'Code generated.', ...(mailStatus.sent ? {} : { devToken: code }) });
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
-});
-
+// RESET PASSWORD — no OTP, just email + new password
 app.post('/api/auth/reset-password-captcha', async (req, res) => {
   try {
     const email       = String(req.body.email       || '').trim().toLowerCase();
@@ -352,6 +285,7 @@ app.post('/api/auth/reset-password-captcha', async (req, res) => {
   }
 });
 
+// CHANGE PASSWORD — no OTP, just current + new password
 app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   try {
     const currentPassword = String(req.body.currentPassword || '');
@@ -363,43 +297,6 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
     const hashed = await bcrypt.hash(newPassword, 10);
     await db.query('UPDATE users SET password=? WHERE id=?', [hashed, req.user.id]);
     res.json({ success: true, message: 'Password changed successfully' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
-});
-
-app.post('/api/auth/send-security-otp', requireAuth, async (req, res) => {
-  try {
-    const purpose = String(req.body.purpose || 'change_password');
-    if (!['change_password'].includes(purpose))
-      return res.status(400).json({ success: false, error: 'Invalid purpose' });
-    const email   = req.user.email;
-    const code    = generateOtp();
-    const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-    await db.query('DELETE FROM email_verifications WHERE email=? AND type=?', [email, purpose]);
-    await db.query('INSERT INTO email_verifications (email,code,type,expires_at) VALUES (?,?,?,?)', [email, code, purpose, expires]);
-    let mailStatus = { sent: false };
-    try { mailStatus = await sendOtpEmail({ to: email, code, subject: 'BuildMatrix — Confirm Password Change', purpose }); }
-    catch (e) { console.error('send-security-otp mail error:', e.message); }
-    const masked = email.replace(/(.{2})(.*)(@.*)/, '$1***$3');
-    res.json({ success: true, email: masked, message: mailStatus.sent ? 'Code sent to your email!' : 'Code generated.', ...(mailStatus.sent ? {} : { devToken: code }) });
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
-});
-
-app.post('/api/auth/verify-security-otp', requireAuth, async (req, res) => {
-  try {
-    const code    = String(req.body.code    || '').trim();
-    const purpose = String(req.body.purpose || 'change_password');
-    if (!code) return res.status(400).json({ success: false, error: 'Code is required' });
-    const [vcRows] = await db.query(
-      'SELECT id FROM email_verifications WHERE email=? AND code=? AND type=? AND used=0 AND expires_at>?',
-      [req.user.email, code, purpose, new Date().toISOString()]
-    );
-    if (!vcRows.length) return res.status(400).json({ success: false, error: 'Invalid or expired code.' });
-    await db.query('UPDATE email_verifications SET used=1 WHERE id=?', [vcRows[0].id]);
-    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Server error' });
   }
@@ -436,6 +333,8 @@ app.put('/api/auth/profile', requireAuth, async (req, res) => {
   }
 });
 
+// ─── PROFILE ────────────────────────────────────────────────────────────────
+
 app.get('/api/profile/:userId', requireAuth, async (req, res) => {
   try {
     const [userRows] = await db.query('SELECT * FROM users WHERE id=?', [req.params.userId]);
@@ -465,6 +364,8 @@ app.put('/api/profile/update', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// ─── BUILDS ─────────────────────────────────────────────────────────────────
 
 app.get('/api/builds', requireAuth, async (req, res) => {
   try {
@@ -529,6 +430,8 @@ app.put('/api/builds/:id/notes', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
+// ─── SHARE ──────────────────────────────────────────────────────────────────
+
 app.post('/api/share', async (req, res) => {
   try {
     const items = Array.isArray(req.body.items) ? req.body.items : [];
@@ -547,6 +450,8 @@ app.get('/api/share/:id', async (req, res) => {
     res.json({ success: true, build: { id: r.id, name: r.name, total: r.total, createdAt: r.created_at, items: (() => { try { return JSON.parse(r.items_json); } catch { return []; } })() } });
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
+
+// ─── ADMIN ──────────────────────────────────────────────────────────────────
 
 app.get('/api/admin/stats', requireAdmin, async (req, res) => {
   try {
@@ -652,6 +557,8 @@ app.put('/api/admin/products/:id', requireAdmin, async (req, res) => {
 
 app.delete('/api/admin/products/:id', requireAdmin, async (req, res) => { try { await db.query('DELETE FROM products WHERE id=?', [req.params.id]); res.json({ success: true }); } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); } });
 
+// ─── NEWSLETTER ─────────────────────────────────────────────────────────────
+
 app.post('/api/newsletter/subscribe', async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
@@ -687,6 +594,8 @@ app.delete('/api/newsletter/:email', requireAdmin, async (req, res) => {
   catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
+// ─── STORES & PRICES ────────────────────────────────────────────────────────
+
 app.get('/api/stores',        (req, res) => res.json({ success: true, stores: Object.values(priceSources.STORES).map(s => ({ name: s.name, url: s.homepage, logo: s.logo, color: s.color })) }));
 app.get('/api/store-credits', (req, res) => res.json({ success: true, message: 'Price references from Philippine PC stores', stores: Object.values(priceSources.STORES).map(s => ({ name: s.name, url: s.homepage, logo: s.logo, color: s.color })) }));
 
@@ -700,6 +609,8 @@ app.get('/api/prices/:category/:productId', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) { res.status(500).json({ success: false, error: 'Failed to fetch prices', stores: priceSources.STORES }); }
 });
+
+// ─── JAVA ENDPOINTS ─────────────────────────────────────────────────────────
 
 function runJava(className, args = []) {
   return new Promise((resolve, reject) => {
@@ -751,6 +662,8 @@ app.get('/api/java/budget', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ─── LEADERBOARD & HISTORY ──────────────────────────────────────────────────
+
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -772,12 +685,12 @@ app.get('/api/builds/history/all', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
+// ─── HEALTH & ADMIN HELPER ──────────────────────────────────────────────────
+
 app.get('/api/health', async (req, res) => {
   try { await db.query('SELECT 1'); res.json({ status: 'ok', db: 'sqlite', timestamp: new Date().toISOString() }); }
   catch (err) { res.status(500).json({ status: 'error', db: 'unreachable' }); }
 });
-
-app.use('/api', (req, res) => res.status(404).json({ error: 'API route not found' }));
 
 app.get('/api/make-admin-princeramos231', async (req, res) => {
   try {
@@ -787,6 +700,8 @@ app.get('/api/make-admin-princeramos231', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+app.use('/api', (req, res) => res.status(404).json({ error: 'API route not found' }));
 
 app.get('*', (req, res) => {
   const file = path.join(PUBLIC_DIR, 'index.html');
@@ -799,15 +714,5 @@ app.listen(PORT, async () => {
   console.log('BuildMatrix Server Running!');
   console.log(`Port    : ${PORT}`);
   console.log(`Database: ${DB_FILE}`);
-  console.log(`Email   : ${process.env.EMAIL_USER ? process.env.EMAIL_USER : 'Not configured'}`);
   console.log('='.repeat(45));
-  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    try {
-      const tr = buildTransporter();
-      await tr.verify();
-      console.log('SMTP connection verified!');
-    } catch (err) {
-      console.error('SMTP connection FAILED:', err.message);
-    }
-  }
 });
