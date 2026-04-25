@@ -655,7 +655,7 @@
       if (udEmail) udEmail.textContent = user.email || '';
       var adminBtn = document.getElementById('adminPanelBtn');
       if (adminBtn) {
-        fetch(window.API_URL + '/auth/me', { credentials: 'include' })
+        fetch('https://web-production-30866.up.railway.app/api/auth/me', { credentials: 'include' })
           .then(function(r){ return r.json(); })
           .then(function(me){
             if (me && me.is_admin) adminBtn.style.display = 'block';
