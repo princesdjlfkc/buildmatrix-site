@@ -361,6 +361,7 @@
           <a href="builder.html"><i class="fas fa-tools"></i> PC Builder</a>
           <a href="build-database.html"><i class="fas fa-database"></i> Spec Database</a>
           <hr>
+          <a href="https://web-production-30866.up.railway.app/admin.html" id="adminPanelBtn" style="display:none;color:#00D4FF !important;"><i class="fas fa-shield-alt"></i> Admin Panel</a>
           <a href="#" onclick="doSignOut(); return false;" class="ud-signout"><i class="fas fa-sign-out-alt"></i> Sign Out</a>
         </div>
       </div>
@@ -652,6 +653,16 @@
       if (userNameHeader) userNameHeader.textContent = user.name || 'User';
       if (udName) udName.textContent = user.name || 'User';
       if (udEmail) udEmail.textContent = user.email || '';
+      var adminBtn = document.getElementById('adminPanelBtn');
+      if (adminBtn) {
+        fetch(window.API_URL + '/auth/me', { credentials: 'include' })
+          .then(function(r){ return r.json(); })
+          .then(function(me){
+            if (me && me.is_admin) adminBtn.style.display = 'block';
+          }).catch(function(){
+            if (user.is_admin) adminBtn.style.display = 'block';
+          });
+      }
     }
   });
 
