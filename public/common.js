@@ -1,4 +1,4 @@
-﻿const API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+const API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:5000/api'
     : 'https://web-production-30866.up.railway.app/api';
 
@@ -74,7 +74,7 @@ async function apiFetch(path, options = {}) {
 }
 
 async function syncUserFromSession() {
-  // Always trust localStorage first — don't wipe it just because session fails
+  // Always trust localStorage first � don't wipe it just because session fails
   const localUser = getCurrentUser();
   try {
     const me = await apiFetch("/auth/me", { method: "GET" });
