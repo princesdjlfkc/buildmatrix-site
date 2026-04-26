@@ -358,10 +358,11 @@
             </div>
           </div>
           <a href="my-builds.html"><i class="fas fa-folder"></i> My Builds</a>
+          <a href="profile.html"><i class="fas fa-user"></i> My Profile</a>
           <a href="builder.html"><i class="fas fa-tools"></i> PC Builder</a>
           <a href="build-database.html"><i class="fas fa-database"></i> Spec Database</a>
           <hr>
-          <a href="https://web-production-30866.up.railway.app/admin.html" id="adminPanelBtn" style="display:none;color:#00D4FF !important;"><i class="fas fa-shield-alt"></i> Admin Panel</a>
+          <a href="admin.html" id="adminPanelBtn" style="display:none;color:#00D4FF !important;"><i class="fas fa-shield-alt"></i> Admin Panel</a>
           <a href="#" onclick="doSignOut(); return false;" class="ud-signout"><i class="fas fa-sign-out-alt"></i> Sign Out</a>
         </div>
       </div>
@@ -655,7 +656,7 @@
       if (udEmail) udEmail.textContent = user.email || '';
       var adminBtn = document.getElementById('adminPanelBtn');
       if (adminBtn) {
-        fetch('https://web-production-30866.up.railway.app/api/auth/me', { credentials: 'include' })
+        fetch((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:5000' : 'https://web-production-30866.up.railway.app') + '/api/auth/me', { credentials: 'include' })
           .then(function(r){ return r.json(); })
           .then(function(me){
             if (me && me.is_admin) adminBtn.style.display = 'block';
