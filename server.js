@@ -532,7 +532,7 @@ app.get('/api/newsletter/unsubscribe', async (req, res) => {
     const expected = crypto.createHmac('sha256', process.env.SESSION_SECRET || 'buildmatrix-unsub').update(email).digest('hex');
     if (token && token !== expected) return res.status(403).send('<h2>Invalid token.</h2>');
     await db.query('DELETE FROM newsletter WHERE email=?', [email]);
-    res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#fff;"><h2 style="color:#00D4FF;">âœ“ Unsubscribed</h2><p style="color:#aaa;">${email} removed from BuildMatrix newsletter.</p><a href="/" style="color:#00D4FF;">â† Back</a></body></html>`);
+    res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#fff;"><h2 style="color:#00D4FF;">ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Unsubscribed</h2><p style="color:#aaa;">${email} removed from BuildMatrix newsletter.</p><a href="/" style="color:#00D4FF;">ÃƒÂ¢Ã¢â‚¬Â Ã‚Â Back</a></body></html>`);
   } catch (err) { res.status(500).send('<h2>Error.</h2>'); }
 });
 
@@ -582,9 +582,9 @@ app.get('/api/java/compatibility', async (req, res) => {
 app.get('/api/java/price-calc', async (req, res) => {
   try {
     const priceArray = (req.query.prices || '').split(',').filter(Boolean);
-    if (!priceArray.length) return res.json({ success: true, result: 'Total: â‚±0' });
+    if (!priceArray.length) return res.json({ success: true, result: 'Total: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±0' });
     try { res.json({ success: true, result: (await runJava('PriceCalculator', priceArray)).output }); }
-    catch (err) { const total = priceArray.reduce((s, p) => s + (parseFloat(p) || 0), 0); res.json({ success: true, result: `Total: â‚±${total.toLocaleString()}`, javaAvailable: false }); }
+    catch (err) { const total = priceArray.reduce((s, p) => s + (parseFloat(p) || 0), 0); res.json({ success: true, result: `Total: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${total.toLocaleString()}`, javaAvailable: false }); }
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -606,7 +606,7 @@ app.get('/api/java/budget', async (req, res) => {
   try {
     const total = parseFloat(req.query.budget || '50000');
     try { res.json({ success: true, result: (await runJava('BudgetAllocator', [total])).output }); }
-    catch (err) { res.json({ success: true, javaAvailable: false, result: `CPU: â‚±${(total*0.25).toLocaleString()}\nGPU: â‚±${(total*0.35).toLocaleString()}\nMotherboard: â‚±${(total*0.12).toLocaleString()}\nRAM: â‚±${(total*0.08).toLocaleString()}\nStorage: â‚±${(total*0.08).toLocaleString()}\nPSU: â‚±${(total*0.07).toLocaleString()}\nCase: â‚±${(total*0.05).toLocaleString()}` }); }
+    catch (err) { res.json({ success: true, javaAvailable: false, result: `CPU: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${(total*0.25).toLocaleString()}\nGPU: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${(total*0.35).toLocaleString()}\nMotherboard: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${(total*0.12).toLocaleString()}\nRAM: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${(total*0.08).toLocaleString()}\nStorage: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${(total*0.08).toLocaleString()}\nPSU: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${(total*0.07).toLocaleString()}\nCase: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â±${(total*0.05).toLocaleString()}` }); }
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -636,6 +636,29 @@ app.get('/api/make-admin-princeramos231', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ── PUBLIC PRODUCTS API ───────────────────────────────────────────
+// Used by builder page to load all components
+app.get('/api/products', async (req, res) => {
+  try {
+    const { category, tier, search } = req.query;
+    let sql = 'SELECT * FROM products WHERE 1=1';
+    const params = [];
+    if (category && category !== 'all') { sql += ' AND category = ?'; params.push(category); }
+    if (tier     && tier     !== 'all') { sql += ' AND tier = ?';     params.push(tier); }
+    if (search) {
+      sql += ' AND (name LIKE ? OR specs LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    sql += ' ORDER BY category, price ASC';
+    const [rows] = await db.query(sql, params);
+    const products = rows.map(r => ({
+      ...r,
+      meta: (() => { try { return JSON.parse(r.meta || '{}'); } catch { return {}; } })(),
+    }));
+    res.json({ success: true, products, count: products.length });
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
+});
+
 app.use('/api', (req, res) => res.status(404).json({ error: 'API route not found' }));
 
 app.get('*', (req, res) => {
@@ -650,4 +673,49 @@ app.listen(PORT, () => {
   console.log(`Port    : ${PORT}`);
   console.log(`Database: ${DB_FILE}`);
   console.log('='.repeat(45));
+
+  // ── Auto-seed products table if empty ──────────────────────────
+  try {
+    const count = sqliteDb.prepare('SELECT COUNT(*) as count FROM products').get();
+    if (count.count === 0) {
+      console.log('⚡ Products table empty — seeding from products-data.js...');
+      const dataPath = path.join(__dirname, 'public', 'products-data.js');
+      if (fs.existsSync(dataPath)) {
+        const fakeWindow = {};
+        const fn = new Function('window', fs.readFileSync(dataPath, 'utf8'));
+        fn(fakeWindow);
+        const PRODUCTS = fakeWindow.PRODUCTS || [];
+        const insertStmt = sqliteDb.prepare(`
+          INSERT OR REPLACE INTO products
+            (id, name, category, price, tier, specs, img, rating, ratingCount, meta)
+          VALUES
+            (@id, @name, @category, @price, @tier, @specs, @img, @rating, @ratingCount, @meta)
+        `);
+        const seedTx = sqliteDb.transaction((products) => {
+          for (const p of products) {
+            insertStmt.run({
+              id:          p.id,
+              name:        p.name,
+              category:    p.category,
+              price:       Number(p.price)       || 0,
+              tier:        p.tier                || 'budget',
+              specs:       p.specs               || '',
+              img:         p.img                 || '',
+              rating:      Number(p.rating)      || 0,
+              ratingCount: Number(p.ratingCount) || 0,
+              meta:        JSON.stringify(p.meta || {}),
+            });
+          }
+        });
+        seedTx(PRODUCTS);
+        console.log(`✅ Seeded ${PRODUCTS.length} products into database!`);
+      } else {
+        console.warn('⚠️  public/products-data.js not found — skipping seed');
+      }
+    } else {
+      console.log(`✅ Products OK — ${count.count} products in database`);
+    }
+  } catch (seedErr) {
+    console.error('⚠️  Seed error (non-fatal):', seedErr.message);
+  }
 });
