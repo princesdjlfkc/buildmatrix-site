@@ -19,7 +19,6 @@ try {
 }
 
 const PORT         = Number(process.env.PORT || 5000);
-// Railway persistent volume: use /data if available, else local
 const DB_FILE      = process.env.DB_FILE || (fs.existsSync('/data') ? '/data/buildmatrix.sqlite' : path.join(__dirname, 'buildmatrix.sqlite'));
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -40,7 +39,6 @@ sqliteDb.exec(`
     banned      INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
-
   CREATE TABLE IF NOT EXISTS password_resets (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL,
@@ -50,7 +48,6 @@ sqliteDb.exec(`
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
-
   CREATE TABLE IF NOT EXISTS builds (
     id          TEXT    PRIMARY KEY,
     user_id     INTEGER NOT NULL,
@@ -61,7 +58,6 @@ sqliteDb.exec(`
     updated_at  TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
-
   CREATE TABLE IF NOT EXISTS shared_builds (
     id          TEXT PRIMARY KEY,
     items_json  TEXT NOT NULL,
@@ -69,7 +65,6 @@ sqliteDb.exec(`
     name        TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
-
   CREATE TABLE IF NOT EXISTS products (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -82,7 +77,6 @@ sqliteDb.exec(`
     ratingCount INTEGER,
     meta        TEXT
   );
-
   CREATE TABLE IF NOT EXISTS newsletter (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     email       TEXT NOT NULL UNIQUE,
@@ -97,6 +91,8 @@ for (const m of [
   "ALTER TABLE users ADD COLUMN bio        TEXT DEFAULT ''",
   "ALTER TABLE users ADD COLUMN theme      TEXT DEFAULT 'dark'",
 ]) { try { sqliteDb.exec(m); } catch (_) {} }
+
+try { sqliteDb.prepare("UPDATE users SET is_admin = 1 WHERE email = 'princeramos231@gmail.com'").run(); } catch(_) {}
 
 const db = {
   query(sql, params = []) {
@@ -135,11 +131,7 @@ app.use(session({
   name: 'buildmatrix.sid',
   secret: (() => {
     const s = process.env.SESSION_SECRET;
-    if (!s || s === 'dev-secret-change-me') {
-      const gen = crypto.randomBytes(32).toString('hex');
-      if (!s) console.warn('SESSION_SECRET not set — sessions will reset on restart!');
-      return gen;
-    }
+    if (!s || s === 'dev-secret-change-me') return crypto.randomBytes(32).toString('hex');
     return s;
   })(),
   resave: true,
@@ -156,8 +148,7 @@ app.use(session({
 }));
 
 async function requireAuth(req, res, next) {
-  if (!req.session?.userId)
-    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  if (!req.session?.userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
   try {
     const [rows] = await db.query('SELECT * FROM users WHERE id = ?', [req.session.userId]);
     const user = rows[0];
@@ -165,22 +156,17 @@ async function requireAuth(req, res, next) {
     if (user.banned) return res.status(403).json({ success: false, error: 'Your account has been banned.' });
     req.user = user;
     next();
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 }
 
 async function requireAdmin(req, res, next) {
-  if (!req.session?.userId)
-    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  if (!req.session?.userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
   try {
     const [rows] = await db.query('SELECT * FROM users WHERE id = ?', [req.session.userId]);
     if (!rows[0]?.is_admin) return res.status(403).json({ success: false, error: 'Admin access required' });
     req.user = rows[0];
     next();
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 }
 
 function sanitizeUser(row) {
@@ -197,38 +183,26 @@ function sanitizeUser(row) {
   };
 }
 
-// ─── AUTH ROUTES ────────────────────────────────────────────────────────────
+app.get('/api/auth/test', (req, res) => res.json({ success: true, message: 'Backend is running!', time: new Date().toISOString() }));
 
-app.get('/api/auth/test', (req, res) =>
-  res.json({ success: true, message: 'Backend is running!', time: new Date().toISOString() })
-);
-
-// REGISTER — no OTP, instant registration
 app.post('/api/auth/register', async (req, res) => {
   try {
     const name     = String(req.body.name     || '').trim();
     const email    = String(req.body.email    || '').trim().toLowerCase();
     const password = String(req.body.password || '');
-    if (!name || !email || !password)
-      return res.status(400).json({ success: false, error: 'All fields are required' });
-    if (password.length < 6)
-      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
+    if (!name || !email || !password) return res.status(400).json({ success: false, error: 'All fields are required' });
+    if (password.length < 6) return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
     const [exists] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
-    if (exists.length)
-      return res.status(400).json({ success: false, error: 'Email already registered' });
+    if (exists.length) return res.status(400).json({ success: false, error: 'Email already registered' });
     const hashed = await bcrypt.hash(password, 10);
-    await db.query('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, hashed]);
+    const isAdmin = email === 'princeramos231@gmail.com' ? 1 : 0;
+    await db.query('INSERT INTO users (name, email, password, is_admin) VALUES (?, ?, ?, ?)', [name, email, hashed, isAdmin]);
     const [newRows] = await db.query('SELECT * FROM users WHERE email=?', [email]);
     req.session.userId = newRows[0].id;
-    req.session.save(() =>
-      res.json({ success: true, message: 'Registration successful', user: sanitizeUser(newRows[0]) })
-    );
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+    req.session.save(() => res.json({ success: true, message: 'Account created successfully!', user: sanitizeUser(newRows[0]) }));
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
-// LOGIN — direct, no OTP
 app.post('/api/auth/login', async (req, res) => {
   try {
     const email    = String(req.body.email    || '').trim().toLowerCase();
@@ -239,11 +213,13 @@ app.post('/api/auth/login', async (req, res) => {
     if (user.banned) return res.status(403).json({ success: false, error: 'Your account has been banned.' });
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (email === 'princeramos231@gmail.com' && !user.is_admin) {
+      await db.query('UPDATE users SET is_admin = 1 WHERE email = ?', [email]);
+      user.is_admin = 1;
+    }
     req.session.userId = user.id;
     req.session.save(() => res.json({ success: true, user: sanitizeUser(user) }));
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -252,11 +228,8 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
-  try {
-    res.json(sanitizeUser(req.user));
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  try { res.json(sanitizeUser(req.user)); }
+  catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
 app.put('/api/auth/theme', requireAuth, async (req, res) => {
@@ -267,25 +240,19 @@ app.put('/api/auth/theme', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
-// RESET PASSWORD — no OTP, just email + new password
 app.post('/api/auth/reset-password-captcha', async (req, res) => {
   try {
     const email       = String(req.body.email       || '').trim().toLowerCase();
     const newPassword = String(req.body.newPassword || '');
-    if (!email)           return res.status(400).json({ success: false, error: 'Email is required' });
-    if (!newPassword || newPassword.length < 6)
-      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
+    if (!email) return res.status(400).json({ success: false, error: 'Email is required' });
+    if (!newPassword || newPassword.length < 6) return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
     const [rows] = await db.query('SELECT id FROM users WHERE email=?', [email]);
     if (!rows.length) return res.status(404).json({ success: false, error: 'No account found with that email' });
-    const hashed = await bcrypt.hash(newPassword, 10);
-    await db.query('UPDATE users SET password=? WHERE email=?', [hashed, email]);
+    await db.query('UPDATE users SET password=? WHERE email=?', [await bcrypt.hash(newPassword, 10), email]);
     res.json({ success: true, message: 'Password reset successfully' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
-// CHANGE PASSWORD — no OTP, just current + new password
 app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   try {
     const currentPassword = String(req.body.currentPassword || '');
@@ -294,12 +261,9 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
     if (newPassword.length < 6) return res.status(400).json({ success: false, error: 'New password must be at least 6 characters' });
     const ok = await bcrypt.compare(currentPassword, req.user.password);
     if (!ok) return res.status(401).json({ success: false, error: 'Current password is incorrect' });
-    const hashed = await bcrypt.hash(newPassword, 10);
-    await db.query('UPDATE users SET password=? WHERE id=?', [hashed, req.user.id]);
+    await db.query('UPDATE users SET password=? WHERE id=?', [await bcrypt.hash(newPassword, 10), req.user.id]);
     res.json({ success: true, message: 'Password changed successfully' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
 app.post('/api/auth/avatar', requireAuth, async (req, res) => {
@@ -308,9 +272,7 @@ app.post('/api/auth/avatar', requireAuth, async (req, res) => {
     if (avatarUrl && avatarUrl.length > 250000) return res.status(400).json({ success: false, error: 'Image too large. Max 200KB.' });
     await db.query('UPDATE users SET avatar_url=? WHERE id=?', [avatarUrl, req.user.id]);
     res.json({ success: true, avatarUrl });
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
 app.put('/api/auth/profile', requireAuth, async (req, res) => {
@@ -328,12 +290,8 @@ app.put('/api/auth/profile', requireAuth, async (req, res) => {
     await db.query(`UPDATE users SET ${fields.join(',')} WHERE id=?`, values);
     const [rows] = await db.query('SELECT * FROM users WHERE id=?', [req.user.id]);
     res.json({ success: true, user: sanitizeUser(rows[0]) });
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
-
-// ─── PROFILE ────────────────────────────────────────────────────────────────
 
 app.get('/api/profile/:userId', requireAuth, async (req, res) => {
   try {
@@ -342,14 +300,8 @@ app.get('/api/profile/:userId', requireAuth, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     const [builds] = await db.query('SELECT * FROM builds WHERE user_id=? ORDER BY created_at DESC', [user.id]);
     const totalSpent = builds.reduce((s, b) => s + (b.total || 0), 0);
-    res.json({
-      user: sanitizeUser(user),
-      stats: { totalBuilds: builds.length, totalSpent: Math.round(totalSpent), avgBuild: builds.length ? Math.round(totalSpent / builds.length) : 0 },
-      recentBuilds: builds.slice(0, 5).map(b => ({ id: b.id, name: b.name, total: b.total, created_at: b.created_at })),
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
+    res.json({ user: sanitizeUser(user), stats: { totalBuilds: builds.length, totalSpent: Math.round(totalSpent), avgBuild: builds.length ? Math.round(totalSpent / builds.length) : 0 }, recentBuilds: builds.slice(0, 5).map(b => ({ id: b.id, name: b.name, total: b.total, created_at: b.created_at })) });
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.put('/api/profile/update', requireAuth, async (req, res) => {
@@ -360,12 +312,8 @@ app.put('/api/profile/update', requireAuth, async (req, res) => {
     await db.query('UPDATE users SET name=?, bio=? WHERE id=?', [name, bio, req.user.id]);
     const [rows] = await db.query('SELECT * FROM users WHERE id=?', [req.user.id]);
     res.json({ success: true, user: sanitizeUser(rows[0]) });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
-
-// ─── BUILDS ─────────────────────────────────────────────────────────────────
 
 app.get('/api/builds', requireAuth, async (req, res) => {
   try {
@@ -430,8 +378,6 @@ app.put('/api/builds/:id/notes', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
-// ─── SHARE ──────────────────────────────────────────────────────────────────
-
 app.post('/api/share', async (req, res) => {
   try {
     const items = Array.isArray(req.body.items) ? req.body.items : [];
@@ -450,8 +396,6 @@ app.get('/api/share/:id', async (req, res) => {
     res.json({ success: true, build: { id: r.id, name: r.name, total: r.total, createdAt: r.created_at, items: (() => { try { return JSON.parse(r.items_json); } catch { return []; } })() } });
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
-
-// ─── ADMIN ──────────────────────────────────────────────────────────────────
 
 app.get('/api/admin/stats', requireAdmin, async (req, res) => {
   try {
@@ -535,7 +479,6 @@ app.get('/api/admin/builds', requireAdmin, async (req, res) => {
 });
 
 app.delete('/api/admin/builds/:id', requireAdmin, async (req, res) => { try { await db.query('DELETE FROM builds WHERE id=?', [req.params.id]); res.json({ success: true }); } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); } });
-
 app.get('/api/admin/products', requireAdmin, async (req, res) => { try { const [rows] = await db.query('SELECT * FROM products ORDER BY category,name'); res.json({ success: true, products: rows }); } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); } });
 
 app.post('/api/admin/products', requireAdmin, async (req, res) => {
@@ -556,8 +499,6 @@ app.put('/api/admin/products/:id', requireAdmin, async (req, res) => {
 });
 
 app.delete('/api/admin/products/:id', requireAdmin, async (req, res) => { try { await db.query('DELETE FROM products WHERE id=?', [req.params.id]); res.json({ success: true }); } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); } });
-
-// ─── NEWSLETTER ─────────────────────────────────────────────────────────────
 
 app.post('/api/newsletter/subscribe', async (req, res) => {
   try {
@@ -594,8 +535,6 @@ app.delete('/api/newsletter/:email', requireAdmin, async (req, res) => {
   catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
-// ─── STORES & PRICES ────────────────────────────────────────────────────────
-
 app.get('/api/stores',        (req, res) => res.json({ success: true, stores: Object.values(priceSources.STORES).map(s => ({ name: s.name, url: s.homepage, logo: s.logo, color: s.color })) }));
 app.get('/api/store-credits', (req, res) => res.json({ success: true, message: 'Price references from Philippine PC stores', stores: Object.values(priceSources.STORES).map(s => ({ name: s.name, url: s.homepage, logo: s.logo, color: s.color })) }));
 
@@ -609,8 +548,6 @@ app.get('/api/prices/:category/:productId', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) { res.status(500).json({ success: false, error: 'Failed to fetch prices', stores: priceSources.STORES }); }
 });
-
-// ─── JAVA ENDPOINTS ─────────────────────────────────────────────────────────
 
 function runJava(className, args = []) {
   return new Promise((resolve, reject) => {
@@ -662,30 +599,19 @@ app.get('/api/java/budget', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// ─── LEADERBOARD & HISTORY ──────────────────────────────────────────────────
-
 app.get('/api/leaderboard', async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT b.id, b.name, b.total, b.created_at, u.name AS username
-       FROM builds b JOIN users u ON b.user_id = u.id
-       ORDER BY b.total DESC LIMIT 20`
-    );
+    const [rows] = await db.query(`SELECT b.id, b.name, b.total, b.created_at, u.name AS username FROM builds b JOIN users u ON b.user_id = u.id ORDER BY b.total DESC LIMIT 20`);
     res.json({ success: true, leaderboard: rows });
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
 
 app.get('/api/builds/history/all', requireAuth, async (req, res) => {
   try {
-    const [rows] = await db.query(
-      'SELECT id, name, total, created_at FROM builds WHERE user_id=? ORDER BY created_at ASC',
-      [req.user.id]
-    );
+    const [rows] = await db.query('SELECT id, name, total, created_at FROM builds WHERE user_id=? ORDER BY created_at ASC', [req.user.id]);
     res.json({ success: true, builds: rows });
   } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 });
-
-// ─── HEALTH & ADMIN HELPER ──────────────────────────────────────────────────
 
 app.get('/api/health', async (req, res) => {
   try { await db.query('SELECT 1'); res.json({ status: 'ok', db: 'sqlite', timestamp: new Date().toISOString() }); }
@@ -696,9 +622,7 @@ app.get('/api/make-admin-princeramos231', async (req, res) => {
   try {
     await db.query("UPDATE users SET is_admin = 1 WHERE email = 'princeramos231@gmail.com'");
     res.json({ success: true, message: 'Admin granted to princeramos231@gmail.com' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'API route not found' }));
@@ -709,7 +633,7 @@ app.get('*', (req, res) => {
   res.status(404).send('Not found');
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log('='.repeat(45));
   console.log('BuildMatrix Server Running!');
   console.log(`Port    : ${PORT}`);
