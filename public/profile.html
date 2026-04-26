@@ -559,36 +559,6 @@
   </div>
 
   <!-- Security -->
-  <div class="section-card">
-    <div class="section-head" onclick="toggleSection(this)">
-      <div class="section-title">
-        <i class="fas fa-shield-alt"></i>
-        Security Settings
-      </div>
-      <i class="fas fa-chevron-down section-chevron"></i>
-    </div>
-    <div class="section-body">
-      <div style="margin-top:20px;">
-        <div class="field-group">
-          <label class="field-label">Current Password</label>
-          <div class="field-wrap">
-            <i class="fas fa-lock field-icon"></i>
-            <input type="password" id="currentPassword" placeholder="Enter current password">
-          </div>
-        </div>
-        <div class="field-group">
-          <label class="field-label">New Password</label>
-          <div class="field-wrap">
-            <i class="fas fa-key field-icon"></i>
-            <input type="password" id="newPassword" placeholder="Min. 6 characters">
-          </div>
-        </div>
-        <button class="btn btn-primary" onclick="updatePassword()">
-          <i class="fas fa-lock"></i> Update Password
-        </button>
-      </div>
-    </div>
-  </div>
 
   <!-- Favorites -->
   <div class="section-card">
@@ -640,7 +610,7 @@
 <script>
   const API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:5000/api'
-    : 'https://buildmatrix-clean-zcek.onrender.com/api';
+    : 'https://web-production-30866.up.railway.app/api';
 
   function toast(msg, err) {
     document.querySelectorAll('.toast').forEach(t => t.remove());
@@ -707,7 +677,7 @@
     const name = document.getElementById('nameInput').value.trim();
     if (!name) { toast('Please enter a name', true); return; }
     try {
-      const r = await fetch(`${API}/auth/update-name`, {
+      const r = await fetch(`${API}/auth/profile`, {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
@@ -738,7 +708,7 @@
     if (!cur || !nxt) { toast('Fill in both password fields', true); return; }
     if (nxt.length < 6) { toast('New password must be at least 6 characters', true); return; }
     try {
-      const r = await fetch(`${API}/auth/change-password`, {
+      const r = await fetch(`${API}/auth/profile`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword: cur, newPassword: nxt })
