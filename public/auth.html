@@ -345,26 +345,10 @@
       document.getElementById('login-forgot').style.display = 'none';
     }
 
-    var CAPTCHA_OPS = ['+', '-', '*'];
-
     function makeCaptcha() {
-      var op = CAPTCHA_OPS[Math.floor(Math.random() * CAPTCHA_OPS.length)];
-      var a, b, answer;
-      if (op === '+') {
-        a = Math.floor(Math.random() * 50) + 1;
-        b = Math.floor(Math.random() * 50) + 1;
-        answer = a + b;
-      } else if (op === '-') {
-        a = Math.floor(Math.random() * 50) + 10;
-        b = Math.floor(Math.random() * a) + 1;
-        answer = a - b;
-      } else {
-        a = Math.floor(Math.random() * 12) + 2;
-        b = Math.floor(Math.random() * 12) + 2;
-        answer = a * b;
-      }
-      var opSymbol = op === '*' ? '×' : op;
-      return { eq: a + ' ' + opSymbol + ' ' + b, answer: answer };
+      var a = Math.floor(Math.random() * 15) + 1;
+      var b = Math.floor(Math.random() * 15) + 1;
+      return { eq: a + ' + ' + b, answer: a + b };
     }
 
     var captchaAnswer = 0;
