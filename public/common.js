@@ -294,3 +294,4 @@ function showFavorites() {
 
 window.open2FASetup = open2FASetup;
 window.showFavorites = showFavorites;
+
