@@ -92,7 +92,18 @@ for (const m of [
   "ALTER TABLE users ADD COLUMN theme      TEXT DEFAULT 'dark'",
 ]) { try { sqliteDb.exec(m); } catch (_) {} }
 
-try { sqliteDb.prepare("UPDATE users SET is_admin = 1 WHERE email = 'princeramos231@gmail.com'").run(); } catch(_) {}
+// Auto-create owner
+try {
+  const ownerEmail = 'princeramos231@gmail.com';
+  const existing = sqliteDb.prepare('SELECT id FROM users WHERE email = ?').get(ownerEmail);
+  if (!existing) {
+    const bcrypt = require('bcryptjs');
+    const hash = bcrypt.hashSync('BuildMatrix2026!', 10);
+    sqliteDb.prepare('INSERT INTO users (name, email, password, is_admin) VALUES (?, ?, ?, 1)').run('prinzz', ownerEmail, hash);
+  } else {
+    sqliteDb.prepare('UPDATE users SET is_admin = 1 WHERE email = ?').run(ownerEmail);
+  }
+} catch(e) {}
 
 const db = {
   query(sql, params = []) {
@@ -521,7 +532,7 @@ app.get('/api/newsletter/unsubscribe', async (req, res) => {
     const expected = crypto.createHmac('sha256', process.env.SESSION_SECRET || 'buildmatrix-unsub').update(email).digest('hex');
     if (token && token !== expected) return res.status(403).send('<h2>Invalid token.</h2>');
     await db.query('DELETE FROM newsletter WHERE email=?', [email]);
-    res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#fff;"><h2 style="color:#00D4FF;">✓ Unsubscribed</h2><p style="color:#aaa;">${email} removed from BuildMatrix newsletter.</p><a href="/" style="color:#00D4FF;">← Back</a></body></html>`);
+    res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#fff;"><h2 style="color:#00D4FF;">âœ“ Unsubscribed</h2><p style="color:#aaa;">${email} removed from BuildMatrix newsletter.</p><a href="/" style="color:#00D4FF;">â† Back</a></body></html>`);
   } catch (err) { res.status(500).send('<h2>Error.</h2>'); }
 });
 
@@ -571,9 +582,9 @@ app.get('/api/java/compatibility', async (req, res) => {
 app.get('/api/java/price-calc', async (req, res) => {
   try {
     const priceArray = (req.query.prices || '').split(',').filter(Boolean);
-    if (!priceArray.length) return res.json({ success: true, result: 'Total: ₱0' });
+    if (!priceArray.length) return res.json({ success: true, result: 'Total: â‚±0' });
     try { res.json({ success: true, result: (await runJava('PriceCalculator', priceArray)).output }); }
-    catch (err) { const total = priceArray.reduce((s, p) => s + (parseFloat(p) || 0), 0); res.json({ success: true, result: `Total: ₱${total.toLocaleString()}`, javaAvailable: false }); }
+    catch (err) { const total = priceArray.reduce((s, p) => s + (parseFloat(p) || 0), 0); res.json({ success: true, result: `Total: â‚±${total.toLocaleString()}`, javaAvailable: false }); }
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -595,7 +606,7 @@ app.get('/api/java/budget', async (req, res) => {
   try {
     const total = parseFloat(req.query.budget || '50000');
     try { res.json({ success: true, result: (await runJava('BudgetAllocator', [total])).output }); }
-    catch (err) { res.json({ success: true, javaAvailable: false, result: `CPU: ₱${(total*0.25).toLocaleString()}\nGPU: ₱${(total*0.35).toLocaleString()}\nMotherboard: ₱${(total*0.12).toLocaleString()}\nRAM: ₱${(total*0.08).toLocaleString()}\nStorage: ₱${(total*0.08).toLocaleString()}\nPSU: ₱${(total*0.07).toLocaleString()}\nCase: ₱${(total*0.05).toLocaleString()}` }); }
+    catch (err) { res.json({ success: true, javaAvailable: false, result: `CPU: â‚±${(total*0.25).toLocaleString()}\nGPU: â‚±${(total*0.35).toLocaleString()}\nMotherboard: â‚±${(total*0.12).toLocaleString()}\nRAM: â‚±${(total*0.08).toLocaleString()}\nStorage: â‚±${(total*0.08).toLocaleString()}\nPSU: â‚±${(total*0.07).toLocaleString()}\nCase: â‚±${(total*0.05).toLocaleString()}` }); }
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
