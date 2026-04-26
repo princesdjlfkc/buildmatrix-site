@@ -401,6 +401,7 @@
       setLoading('forgotResetBtn', true);
       fetch(API_URL + '/auth/reset-password-captcha', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email, newPassword: newPass })
       })
