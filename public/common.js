@@ -74,7 +74,7 @@ async function apiFetch(path, options = {}) {
 }
 
 async function syncUserFromSession() {
-  // Always trust localStorage first — don't wipe it just because session fails
+  // Always trust localStorage first ï¿½ don't wipe it just because session fails
   const localUser = getCurrentUser();
   try {
     const me = await apiFetch("/auth/me", { method: "GET" });
@@ -294,4 +294,5 @@ function showFavorites() {
 
 window.open2FASetup = open2FASetup;
 window.showFavorites = showFavorites;
+
 
