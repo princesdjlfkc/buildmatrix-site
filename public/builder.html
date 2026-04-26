@@ -1499,7 +1499,7 @@
 
     const _API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
       ? 'http://localhost:5000/api'
-      : 'https://buildmatrix-clean.onrender.com/api';
+      : 'https://web-production-30866.up.railway.app/api';
 
     function getIndexAvatar() {
       return localStorage.getItem('bm-avatar') || null;
@@ -3680,12 +3680,75 @@ if ('serviceWorker' in navigator) {
   };
 
   var _origAdd = window.addToBuild;
-  window.addToBuild = function(btn) {
+  window.addToBuild = function(item) {
     if (typeof _origAdd === 'function') _origAdd.apply(this, arguments);
+    // Fix: ensure PSU wattage is correctly set in dataset from meta
+    if (item && item.category === 'psu') {
+      var meta = item.meta || (item.dataset && {}) || {};
+      var wattage = parseInt(
+        (item.dataset && item.dataset.wattage) ||
+        meta.wattage ||
+        (item.specs && item.specs.match && (item.specs.match(/(\d+)\s*W/i)||[])[1]) ||
+        '0', 10
+      );
+      if (!wattage && item.specs) {
+        var m = String(item.specs).match(/(\d{3,4})\s*[Ww]/);
+        if (m) wattage = parseInt(m[1], 10);
+      }
+      if (wattage > 0) {
+        // Patch selectedItems entry for this PSU
+        var items = window.selectedItems || [];
+        var psuEntry = items.find(function(i) { return i.category === 'psu' && i.name === item.name; });
+        if (psuEntry) {
+          if (!psuEntry.dataset) psuEntry.dataset = {};
+          psuEntry.dataset.wattage = String(wattage);
+        }
+      }
+    }
+    updateWattageBar();
+    checkBottleneck();
   };
 
   window.updateWattageBar = updateWattageBar;
   window.checkBottleneck = checkBottleneck;
+
+  // ── PSU wattage patch: fix "PSU provides 0W" in the compatibility panel ──
+  // Called after builder.js sets up checkCompatibility
+  function patchCheckCompatibility() {
+    var _origCheck = window.checkCompatibility;
+    if (typeof _origCheck !== 'function') return;
+    window.checkCompatibility = function() {
+      // Before running, ensure all PSU items have wattage set in dataset
+      var items = window.selectedItems || [];
+      items.forEach(function(item) {
+        if (item.category !== 'psu') return;
+        var wattage = parseInt((item.dataset && item.dataset.wattage) || '0', 10);
+        if (wattage > 0) return; // already set
+        // Try meta
+        var meta = item.meta || {};
+        wattage = parseInt(meta.wattage || '0', 10);
+        // Try parsing from specs string e.g. "1000W 80+ Gold"
+        if (!wattage && item.specs) {
+          var m = String(item.specs).match(/(\d{3,4})\s*[Ww]/);
+          if (m) wattage = parseInt(m[1], 10);
+        }
+        // Try parsing from name e.g. "Seasonic 1000W"
+        if (!wattage && item.name) {
+          var m2 = String(item.name).match(/(\d{3,4})\s*[Ww]/);
+          if (m2) wattage = parseInt(m2[1], 10);
+        }
+        if (wattage > 0) {
+          if (!item.dataset) item.dataset = {};
+          item.dataset.wattage = String(wattage);
+        }
+      });
+      return _origCheck.apply(this, arguments);
+    };
+  }
+  // Try immediately, then retry after scripts finish loading
+  patchCheckCompatibility();
+  setTimeout(patchCheckCompatibility, 500);
+  setTimeout(patchCheckCompatibility, 1500);
 
 })();
 </script>
@@ -4068,7 +4131,7 @@ if ('serviceWorker' in navigator) {
 
   var _API2 = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:5000/api'
-    : 'https://buildmatrix-clean.onrender.com/api';
+    : 'https://web-production-30866.up.railway.app/api';
 
   // ─────────────────────────────────────────────────────────────────
   // SIGN OUT
